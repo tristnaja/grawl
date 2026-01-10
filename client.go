@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/net/html"
@@ -45,25 +46,45 @@ func fetch(url string) (*html.Node, error) {
 	return doc, nil
 }
 
-func extractLink(node *html.Node) []string {
-	var links []string
-	var traversal func(*html.Node)
+func extractLink(ctx context.Context, rootLink string, node *html.Node) <-chan string {
+	ch := make(chan string, 5)
 
-	traversal = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "a" {
-			for _, attr := range n.Attr {
-				if attr.Key == "href" {
-					links = append(links, attr.Val)
+	go func() {
+		defer close(ch)
+		var traversal func(*html.Node)
+		seen := make(map[string]struct{})
+		var finalLink string
+		traversal = func(n *html.Node) {
+			if n.Type == html.ElementNode && n.Data == "a" {
+				for _, attr := range n.Attr {
+					if attr.Key == "href" {
+						if _, exists := seen[attr.Val]; exists {
+							continue
+						} else {
+							seen[attr.Val] = struct{}{}
+							if strings.Contains(attr.Val, "https://") {
+								finalLink = attr.Val
+							} else {
+								finalLink = rootLink + attr.Val
+							}
+							select {
+							case <-ctx.Done():
+								return
+							default:
+								ch <- finalLink
+							}
+						}
+					}
 				}
+			}
+
+			for child := n.FirstChild; child != nil; child = child.NextSibling {
+				traversal(child)
 			}
 		}
 
-		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			traversal(child)
-		}
-	}
+		traversal(node)
+	}()
 
-	traversal(node)
-
-	return links
+	return ch
 }
