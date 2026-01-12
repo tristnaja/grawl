@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	"golang.org/x/net/html"
@@ -46,14 +46,13 @@ func fetch(url string) (*html.Node, error) {
 	return doc, nil
 }
 
-func extractLink(ctx context.Context, rootLink string, node *html.Node) <-chan string {
+func extractLink(ctx context.Context, rootLink *url.URL, node *html.Node) <-chan string {
 	ch := make(chan string, 5)
 
 	go func() {
 		defer close(ch)
 		var traversal func(*html.Node)
 		seen := make(map[string]struct{})
-		var finalLink string
 		traversal = func(n *html.Node) {
 			if n.Type == html.ElementNode && n.Data == "a" {
 				for _, attr := range n.Attr {
@@ -62,16 +61,19 @@ func extractLink(ctx context.Context, rootLink string, node *html.Node) <-chan s
 							continue
 						} else {
 							seen[attr.Val] = struct{}{}
-							if strings.Contains(attr.Val, "https://") {
-								finalLink = attr.Val
-							} else {
-								finalLink = rootLink + attr.Val
+							finalLink, err := url.Parse(attr.Val)
+
+							if err != nil {
+								return
 							}
+
+							resolved := rootLink.ResolveReference(finalLink)
+
 							select {
 							case <-ctx.Done():
 								return
 							default:
-								ch <- finalLink
+								ch <- resolved.String()
 							}
 						}
 					}

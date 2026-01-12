@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 )
 
 func main() {
@@ -12,15 +13,19 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	rootLink := "https://books.toscrape.com/"
-
-	res, err := fetch(rootLink)
+	base, err := url.Parse("https://books.toscrape.com/")
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	links := extractLink(ctx, rootLink, res)
+	res, err := fetch(base.String())
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	links := extractLink(ctx, base, res)
 
 	for val := range links {
 		fmt.Println(val)
@@ -31,10 +36,14 @@ func main() {
 			log.Fatal(err)
 		}
 
-		for val1 := range extractLink(ctx, val, res) {
+		link, err := url.Parse(val)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for val1 := range extractLink(ctx, link, res) {
 			fmt.Println(val1)
 		}
 	}
-
-	// TODO: Make it able to keep extracting links until the channel is empty
 }
