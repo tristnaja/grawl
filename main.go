@@ -4,46 +4,66 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/url"
+	"sync"
 )
 
 func main() {
 	log.SetPrefix("grawl: ")
 	log.SetFlags(0)
+
+	startURL := "https://books.toscrape.com/"
+	jobs := make(chan Job, 100)
+	result := make(chan Result, 100)
+	queueTrack := 0
+	numWorker := 10
+	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	base, err := url.Parse("https://books.toscrape.com/")
+	wg.Add(1)
+	go worker(1, ctx, jobs, result, &wg)
 
-	if err != nil {
-		log.Fatal(err)
+	job := Job{
+		ID:  0,
+		URL: startURL,
 	}
 
-	res, err := fetch(base.String())
+	jobs <- job
+	queueTrack++
+	fmt.Println("Initial link sent")
 
-	if err != nil {
-		log.Fatal(err)
+	for i := 1; i <= numWorker; i++ {
+		wg.Add(1)
+		go worker(i, ctx, jobs, result, &wg)
 	}
 
-	links := extractLink(ctx, base, res)
+	go func() {
+		wg.Wait()
+		close(result)
+	}()
 
-	for val := range links {
-		fmt.Println(val)
+	for links := range result {
+		queueTrack--
+		for _, link := range links.Finding {
+			newJob := Job{
+				ID:  links.JobID + 1,
+				URL: link,
+			}
 
-		res, err := fetch(val)
-
-		if err != nil {
-			log.Fatal(err)
+			jobs <- newJob
+			queueTrack++
 		}
 
-		link, err := url.Parse(val)
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		for val1 := range extractLink(ctx, link, res) {
-			fmt.Println(val1)
+		if queueTrack == 0 {
+			close(jobs)
 		}
 	}
+
+	fmt.Println("Ready to print results:")
+
+	for job := range jobs {
+		fmt.Println(job.URL)
+	}
+
+	fmt.Println("finished crawling")
 }
