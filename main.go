@@ -14,7 +14,9 @@ func main() {
 	startURL := "https://books.toscrape.com/"
 	jobs := make(chan Job, 100)
 	result := make(chan Result, 100)
-	queueTrack := 0
+	visMap := VisMap{
+		Visited: make(map[string]struct{}),
+	}
 	numWorker := 10
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -23,14 +25,16 @@ func main() {
 	wg.Add(1)
 	go worker(1, ctx, jobs, result, &wg)
 
-	job := Job{
-		ID:  0,
-		URL: startURL,
-	}
+	if visMap.ShouldCrawl(startURL) {
+		job := Job{
+			ID:  0,
+			URL: startURL,
+		}
 
-	jobs <- job
-	queueTrack++
-	fmt.Println("Initial link sent")
+		jobs <- job
+		fmt.Println("Initial link sent")
+
+	}
 
 	for i := 1; i <= numWorker; i++ {
 		wg.Add(1)
@@ -43,18 +47,19 @@ func main() {
 	}()
 
 	for links := range result {
-		queueTrack--
+		visMap.QueueTrack--
 		for _, link := range links.Finding {
-			newJob := Job{
-				ID:  links.JobID + 1,
-				URL: link,
-			}
+			if visMap.ShouldCrawl(link) {
+				newJob := Job{
+					ID:  links.JobID + 1,
+					URL: link,
+				}
 
-			jobs <- newJob
-			queueTrack++
+				jobs <- newJob
+			}
 		}
 
-		if queueTrack == 0 {
+		if visMap.QueueTrack == 0 {
 			close(jobs)
 		}
 	}

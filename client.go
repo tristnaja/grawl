@@ -21,6 +21,25 @@ type Result struct {
 	Finding  []string
 }
 
+type VisMap struct {
+	mu         sync.Mutex
+	Visited    map[string]struct{}
+	QueueTrack int
+}
+
+func (vis *VisMap) ShouldCrawl(link string) bool {
+	vis.mu.Lock()
+	defer vis.mu.Unlock()
+
+	if _, exist := vis.Visited[link]; exist {
+		return false
+	}
+
+	vis.Visited[link] = struct{}{}
+	vis.QueueTrack++
+	return true
+}
+
 func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
