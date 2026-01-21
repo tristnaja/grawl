@@ -22,9 +22,8 @@ type Result struct {
 }
 
 type VisMap struct {
-	mu         sync.Mutex
-	Visited    map[string]struct{}
-	QueueTrack int
+	mu      sync.Mutex
+	Visited map[string]struct{}
 }
 
 func (vis *VisMap) ShouldCrawl(link string) bool {
@@ -36,7 +35,6 @@ func (vis *VisMap) ShouldCrawl(link string) bool {
 	}
 
 	vis.Visited[link] = struct{}{}
-	vis.QueueTrack++
 	return true
 }
 
@@ -51,7 +49,7 @@ func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, 
 			job, ok := <-jobs
 
 			if !ok {
-				return fmt.Errorf("something went wrong")
+				return fmt.Errorf("there is no initial link that can be processed")
 			}
 
 			parsedURL, err := url.Parse(job.URL)

@@ -58,13 +58,7 @@ func main() {
 		go worker(i, ctx, jobs, result, robotsData, &wg)
 	}
 
-	go func() {
-		wg.Wait()
-		close(result)
-	}()
-
 	for links := range result {
-		visMap.QueueTrack--
 		for _, link := range links.Finding {
 			allowed, err := robotsData.IsAllowed(myAgent, link)
 
@@ -84,11 +78,13 @@ func main() {
 			}
 
 		}
-
-		if visMap.QueueTrack == 0 {
-			close(jobs)
-		}
 	}
+
+	go func() {
+		wg.Wait()
+		close(jobs)
+		close(result)
+	}()
 
 	fmt.Println("Ready to print results:")
 
