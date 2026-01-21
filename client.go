@@ -21,24 +21,24 @@ type Result struct {
 	Finding  []string
 }
 
-type VisMap struct {
+type Scheduler struct {
 	mu      sync.Mutex
 	Visited map[string]struct{}
 }
 
-func (vis *VisMap) ShouldCrawl(link string) bool {
-	vis.mu.Lock()
-	defer vis.mu.Unlock()
+func (sch *Scheduler) ShouldCrawl(link string) bool {
+	sch.mu.Lock()
+	defer sch.mu.Unlock()
 
-	if _, exist := vis.Visited[link]; exist {
+	if _, exist := sch.Visited[link]; exist {
 		return false
 	}
 
-	vis.Visited[link] = struct{}{}
+	sch.Visited[link] = struct{}{}
 	return true
 }
 
-func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, robotsData *RobotsData, wg *sync.WaitGroup) error {
+func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, robotsData *Robots, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
 	for {
@@ -88,42 +88,40 @@ func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, 
 			}
 
 			fmt.Printf("Worker %d is Processing %v\n", id, parsedURL.String())
-			wg.Go(func() {
-				res := Result{
-					JobID:    job.ID,
-					StartURL: parsedURL.String(),
-					Finding:  make([]string, 0),
-				}
+			res := Result{
+				JobID:    job.ID,
+				StartURL: parsedURL.String(),
+				Finding:  make([]string, 0),
+			}
 
-				seen := make(map[string]struct{})
-				var traversal func(node *html.Node)
+			seen := make(map[string]struct{})
+			var traversal func(node *html.Node)
 
-				traversal = func(node *html.Node) {
-					if node.Type == html.ElementNode && node.Data == "a" {
-						for _, attr := range node.Attr {
-							if attr.Key == "href" {
-								if _, exist := seen[attr.Val]; !exist {
-									seen[attr.Val] = struct{}{}
-									relLink, err := url.Parse(attr.Val)
-									if err != nil {
-										continue
-									}
-
-									resolved := parsedURL.ResolveReference(relLink)
-									res.Finding = append(res.Finding, resolved.String())
+			traversal = func(node *html.Node) {
+				if node.Type == html.ElementNode && node.Data == "a" {
+					for _, attr := range node.Attr {
+						if attr.Key == "href" {
+							if _, exist := seen[attr.Val]; !exist {
+								seen[attr.Val] = struct{}{}
+								relLink, err := url.Parse(attr.Val)
+								if err != nil {
+									continue
 								}
+
+								resolved := parsedURL.ResolveReference(relLink)
+								res.Finding = append(res.Finding, resolved.String())
 							}
 						}
 					}
-
-					for child := node.FirstChild; child != nil; child = child.NextSibling {
-						traversal(child)
-					}
 				}
 
-				traversal(doc)
-				result <- res
-			})
+				for child := node.FirstChild; child != nil; child = child.NextSibling {
+					traversal(child)
+				}
+			}
+
+			traversal(doc)
+			result <- res
 		}
 	}
 }

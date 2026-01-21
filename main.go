@@ -13,7 +13,7 @@ func main() {
 	myAgent := "grawl"
 
 	var wg sync.WaitGroup
-	visMap := &VisMap{
+	scheduler := &Scheduler{
 		Visited: make(map[string]struct{}),
 	}
 
@@ -41,7 +41,7 @@ func main() {
 		wg.Add(1)
 		go worker(1, ctx, jobs, result, robotsData, &wg)
 
-		if visMap.ShouldCrawl(startURL) {
+		if scheduler.ShouldCrawl(startURL) {
 			job := Job{
 				ID:  0,
 				URL: startURL,
@@ -67,7 +67,7 @@ func main() {
 			}
 
 			if allowed {
-				if visMap.ShouldCrawl(link) {
+				if scheduler.ShouldCrawl(link) {
 					newJob := Job{
 						ID:  links.JobID + 1,
 						URL: link,

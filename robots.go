@@ -23,13 +23,13 @@ type RobotsRule struct {
 	CrawlDelay int
 }
 
-type RobotsData struct {
+type Robots struct {
 	mu             sync.Mutex
 	DomainsLimiter map[string]*RateLimiter
 	Rules          map[string]*RobotsRule
 }
 
-func (r *RobotsData) RateLimit(host string) *RateLimiter {
+func (r *Robots) RateLimit(host string) *RateLimiter {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -56,7 +56,7 @@ func (r *RobotsData) RateLimit(host string) *RateLimiter {
 	return rateLimit
 }
 
-func (r *RobotsData) IsAllowed(agent, path string) (bool, error) {
+func (r *Robots) IsAllowed(agent, path string) (bool, error) {
 	parsedURL, err := url.Parse(path)
 
 	if err != nil {
@@ -87,7 +87,7 @@ func (r *RobotsData) IsAllowed(agent, path string) (bool, error) {
 	return true, nil
 }
 
-func ParseRobot(link string) (*RobotsData, error) {
+func ParseRobot(link string) (*Robots, error) {
 	robotsURL := link + "robots.txt"
 	resp, err := http.Get(robotsURL)
 
@@ -97,7 +97,7 @@ func ParseRobot(link string) (*RobotsData, error) {
 
 	defer resp.Body.Close()
 
-	data := &RobotsData{
+	data := &Robots{
 		DomainsLimiter: make(map[string]*RateLimiter),
 		Rules:          make(map[string]*RobotsRule),
 	}
