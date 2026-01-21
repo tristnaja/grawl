@@ -10,7 +10,8 @@ import (
 func main() {
 	log.SetPrefix("grawl: ")
 	log.SetFlags(0)
-	myAgent := "grawl"
+	botName := "Grawl"
+	myAgent := botName + "/1.0 (trstnalharrish@gmail.com)"
 
 	var wg sync.WaitGroup
 	scheduler := &Scheduler{
@@ -31,7 +32,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	allowed, err := robotsData.IsAllowed(myAgent, startURL)
+	allowed, err := robotsData.IsAllowed(botName, startURL)
 
 	if err != nil {
 		log.Fatal(err)
@@ -39,7 +40,7 @@ func main() {
 
 	if allowed {
 		wg.Add(1)
-		go worker(1, ctx, jobs, result, robotsData, &wg)
+		go worker(1, myAgent, ctx, jobs, result, robotsData, &wg)
 
 		if scheduler.ShouldCrawl(startURL) {
 			job := Job{
@@ -55,7 +56,7 @@ func main() {
 
 	for i := 1; i <= numWorker; i++ {
 		wg.Add(1)
-		go worker(i, ctx, jobs, result, robotsData, &wg)
+		go worker(i, myAgent, ctx, jobs, result, robotsData, &wg)
 	}
 
 	for links := range result {

@@ -88,8 +88,21 @@ func (r *Robots) IsAllowed(agent, path string) (bool, error) {
 }
 
 func ParseRobot(link string) (*Robots, error) {
-	robotsURL := link + "robots.txt"
-	resp, err := http.Get(robotsURL)
+	base, err := url.Parse(link)
+
+	if err != nil {
+		return nil, fmt.Errorf("parsing base url <robots.txt>: %w", err)
+	}
+
+	path, err := url.Parse("robots.txt")
+
+	if err != nil {
+		return nil, fmt.Errorf("parsing path url <robots.txt>: %w", err)
+	}
+
+	robotsURL := base.ResolveReference(path)
+
+	resp, err := http.Get(robotsURL.String())
 
 	if err != nil {
 		return nil, fmt.Errorf("getting http request: %w", err)
