@@ -39,7 +39,7 @@ func main() {
 
 	if allowed {
 		wg.Add(1)
-		go worker(1, ctx, jobs, result, &wg)
+		go worker(1, ctx, jobs, result, robotsData, &wg)
 
 		if visMap.ShouldCrawl(startURL) {
 			job := Job{
@@ -55,7 +55,7 @@ func main() {
 
 	for i := 1; i <= numWorker; i++ {
 		wg.Add(1)
-		go worker(i, ctx, jobs, result, &wg)
+		go worker(i, ctx, jobs, result, robotsData, &wg)
 	}
 
 	go func() {

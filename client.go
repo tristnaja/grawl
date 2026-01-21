@@ -40,7 +40,7 @@ func (vis *VisMap) ShouldCrawl(link string) bool {
 	return true
 }
 
-func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, wg *sync.WaitGroup) error {
+func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, robotsData *RobotsData, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
 	for {
@@ -59,6 +59,10 @@ func worker(id int, ctx context.Context, jobs <-chan Job, result chan<- Result, 
 			if err != nil {
 				return fmt.Errorf("parsing url: %w", err)
 			}
+
+			ticker := robotsData.RateLimit(parsedURL.Host)
+
+			<-ticker.Ticker.C
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 

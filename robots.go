@@ -5,17 +5,55 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
+type RateLimiter struct {
+	Host   string
+	Ticker *time.Ticker
+}
+
 type RobotsRule struct {
-	UserAgent string
-	Disallow  []string
-	Allow     []string
+	UserAgent  string
+	Disallow   []string
+	Allow      []string
+	CrawlDelay int
 }
 
 type RobotsData struct {
-	Rules map[string]*RobotsRule
+	mu             sync.Mutex
+	DomainsLimiter map[string]*RateLimiter
+	Rules          map[string]*RobotsRule
+}
+
+func (r *RobotsData) RateLimit(host string) *RateLimiter {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var ticker *time.Ticker
+
+	if rateLimit, exist := r.DomainsLimiter[host]; exist {
+		return rateLimit
+	}
+
+	if _, exist := r.Rules[host]; exist {
+		ticker = time.NewTicker(time.Duration(r.Rules[host].CrawlDelay) * time.Second)
+	} else {
+
+		ticker = time.NewTicker(5 * time.Second)
+	}
+
+	rateLimit := &RateLimiter{
+		Host:   host,
+		Ticker: ticker,
+	}
+
+	r.DomainsLimiter[host] = rateLimit
+
+	return rateLimit
 }
 
 func (r *RobotsData) IsAllowed(agent, path string) (bool, error) {
@@ -60,7 +98,8 @@ func ParseRobot(link string) (*RobotsData, error) {
 	defer resp.Body.Close()
 
 	data := &RobotsData{
-		Rules: make(map[string]*RobotsRule),
+		DomainsLimiter: make(map[string]*RateLimiter),
+		Rules:          make(map[string]*RobotsRule),
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -95,6 +134,10 @@ func ParseRobot(link string) (*RobotsData, error) {
 		case "allow":
 			if currentAgent != "" {
 				data.Rules[currentAgent].Allow = append(data.Rules[currentAgent].Allow, val)
+			}
+		case "crawl-delay":
+			if currentAgent != "" {
+				data.Rules[currentAgent].CrawlDelay, err = strconv.Atoi(val)
 			}
 		}
 	}
