@@ -3,9 +3,22 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"net/url"
 	"sync"
+	"time"
 )
+
+type Worker struct {
+	AgentName string
+	client    *http.Client
+	ctx       context.Context
+	Jobs      <-chan Job
+	Result    chan<- Result
+	robots    *Robots
+	wg        *sync.WaitGroup
+}
 
 type Job struct {
 	ID  int
@@ -19,8 +32,9 @@ type Result struct {
 }
 
 type Scheduler struct {
-	mu      sync.Mutex
-	Visited map[string]struct{}
+	mu         sync.Mutex
+	Visited    map[string]struct{}
+	QueueTrack int
 }
 
 func (sch *Scheduler) ShouldCrawl(link string) bool {
@@ -32,19 +46,47 @@ func (sch *Scheduler) ShouldCrawl(link string) bool {
 	}
 
 	sch.Visited[link] = struct{}{}
+	sch.QueueTrack++
 	return true
 }
 
-func worker(id int, myAgent string, ctx context.Context, jobs <-chan Job, result chan<- Result, robotsData *Robots, wg *sync.WaitGroup) error {
-	defer wg.Done()
+func WorkerInit(myAgent string, ctx context.Context, jobs <-chan Job, result chan<- Result, robotsData *Robots, wg *sync.WaitGroup) *Worker {
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+		MaxIdleConns:          100,
+		MaxConnsPerHost:       10,
+		IdleConnTimeout:       90 * time.Second,
+	}
+
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+	}
+
+	return &Worker{
+		AgentName: myAgent,
+		client:    client,
+		ctx:       ctx,
+		Jobs:      jobs,
+		Result:    result,
+		robots:    robotsData,
+		wg:        wg,
+	}
+}
+
+func (worker *Worker) Run(id int) error {
+	defer worker.wg.Done()
 
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			job, ok := <-jobs
-
+		case <-worker.ctx.Done():
+			return worker.ctx.Err()
+		case job, ok := <-worker.Jobs:
 			if !ok {
 				return fmt.Errorf("there is no initial link that can be processed")
 			}
@@ -55,11 +97,11 @@ func worker(id int, myAgent string, ctx context.Context, jobs <-chan Job, result
 				return fmt.Errorf("parsing url: %w", err)
 			}
 
-			ticker := robotsData.RateLimit(parsedURL.Host)
+			ticker := worker.robots.RateLimit(parsedURL.Host)
 
 			<-ticker.Ticker.C
 
-			doc, err := Fetch(ctx, myAgent, parsedURL)
+			doc, err := Fetch(worker.ctx, worker.client, worker.AgentName, parsedURL)
 
 			if err != nil {
 				return err
@@ -72,7 +114,7 @@ func worker(id int, myAgent string, ctx context.Context, jobs <-chan Job, result
 				Finding:  make([]string, 0),
 			}
 
-			Traverse(doc, res, result)
+			Traverse(doc, res, worker.Result)
 		}
 	}
 }

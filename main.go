@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
+	"net/url"
 	"sync"
 )
 
@@ -18,7 +20,7 @@ func main() {
 		Visited: make(map[string]struct{}),
 	}
 
-	startURL := "https://books.toscrape.com/"
+	startURL := "https://example.com/"
 
 	robotsData, err := ParseRobot(startURL)
 
@@ -32,16 +34,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	worker := WorkerInit(myAgent, ctx, jobs, result, robotsData, &wg)
+
 	allowed, err := robotsData.IsAllowed(botName, startURL)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if allowed {
+	for i := 1; i <= numWorker; i++ {
 		wg.Add(1)
-		go worker(1, myAgent, ctx, jobs, result, robotsData, &wg)
+		go worker.Run(i)
+	}
 
+	if allowed {
 		if scheduler.ShouldCrawl(startURL) {
 			job := Job{
 				ID:  0,
@@ -50,17 +56,40 @@ func main() {
 
 			jobs <- job
 			fmt.Println("Initial link sent")
-
 		}
 	}
 
-	for i := 1; i <= numWorker; i++ {
-		wg.Add(1)
-		go worker(i, myAgent, ctx, jobs, result, robotsData, &wg)
-	}
-
 	for links := range result {
+		scheduler.QueueTrack--
 		for _, link := range links.Finding {
+			parsedURL, err := url.Parse(link)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+				continue
+			}
+
+			if _, exist := robotsData.host[parsedURL.Host]; !exist {
+				fmt.Println("getting new rules")
+				parsedURL.Path = "/"
+				parsedURL.RawQuery = ""
+				parsedURL.Fragment = ""
+
+				fmt.Println(parsedURL.String())
+
+				addedRules, err := ParseRobot(parsedURL.String())
+
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				maps.Copy(robotsData.Rules, addedRules.Rules)
+				robotsData.host[parsedURL.Host] = struct{}{}
+			}
+
 			allowed, err := robotsData.IsAllowed(myAgent, link)
 
 			if err != nil {
@@ -79,11 +108,14 @@ func main() {
 			}
 
 		}
+
+		if scheduler.QueueTrack == 0 {
+			close(jobs)
+		}
 	}
 
 	go func() {
 		wg.Wait()
-		close(jobs)
 		close(result)
 	}()
 
