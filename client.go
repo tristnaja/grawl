@@ -10,14 +10,18 @@ import (
 	"time"
 )
 
-type Worker struct {
+type Client struct {
 	AgentName string
-	client    *http.Client
-	ctx       context.Context
-	Jobs      <-chan Job
-	Result    chan<- Result
-	robots    *Robots
-	wg        *sync.WaitGroup
+	Client    *http.Client
+	Ctx       context.Context
+}
+
+type Worker struct {
+	Client Client
+	Jobs   <-chan Job
+	Result chan<- Result
+	robots *Robots
+	wg     *sync.WaitGroup
 }
 
 type Job struct {
@@ -50,7 +54,7 @@ func (sch *Scheduler) ShouldCrawl(link string) bool {
 	return true
 }
 
-func WorkerInit(myAgent string, ctx context.Context, jobs <-chan Job, result chan<- Result, robotsData *Robots, wg *sync.WaitGroup) *Worker {
+func NewClient(agentName string, ctx context.Context) *Client {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   5 * time.Second,
@@ -68,24 +72,30 @@ func WorkerInit(myAgent string, ctx context.Context, jobs <-chan Job, result cha
 		Transport: transport,
 	}
 
-	return &Worker{
-		AgentName: myAgent,
-		client:    client,
-		ctx:       ctx,
-		Jobs:      jobs,
-		Result:    result,
-		robots:    robotsData,
-		wg:        wg,
+	return &Client{
+		AgentName: agentName,
+		Client:    client,
+		Ctx:       ctx,
 	}
 }
 
-func (worker *Worker) Run(id int) error {
+func NewWorker(client Client, jobs <-chan Job, result chan<- Result, robotsData *Robots, wg *sync.WaitGroup) *Worker {
+	return &Worker{
+		Client: client,
+		Jobs:   jobs,
+		Result: result,
+		robots: robotsData,
+		wg:     wg,
+	}
+}
+
+func (worker *Worker) Run(id int, botName string) error {
 	defer worker.wg.Done()
 
 	for {
 		select {
-		case <-worker.ctx.Done():
-			return worker.ctx.Err()
+		case <-worker.Client.Ctx.Done():
+			return worker.Client.Ctx.Err()
 		case job, ok := <-worker.Jobs:
 			if !ok {
 				return fmt.Errorf("there is no initial link that can be processed")
@@ -97,11 +107,11 @@ func (worker *Worker) Run(id int) error {
 				return fmt.Errorf("parsing url: %w", err)
 			}
 
-			ticker := worker.robots.RateLimit(parsedURL.Host)
+			ticker := worker.robots.RateLimit(botName, parsedURL)
 
-			<-ticker.Ticker.C
+			<-ticker.C
 
-			doc, err := Fetch(worker.ctx, worker.client, worker.AgentName, parsedURL)
+			doc, err := Fetch(worker.Client.Ctx, worker.Client.Client, worker.Client.AgentName, parsedURL)
 
 			if err != nil {
 				return err

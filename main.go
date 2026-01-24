@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"maps"
 	"net/url"
 	"sync"
 )
@@ -21,22 +20,17 @@ func main() {
 	}
 
 	startURL := "https://example.com/"
-
-	robotsData, err := ParseRobot(startURL)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	jobs := make(chan Job, 100)
 	result := make(chan Result, 100)
 	numWorker := 10
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	worker := WorkerInit(myAgent, ctx, jobs, result, robotsData, &wg)
+	client := NewClient(myAgent, ctx)
+	robot := NewRobot(client.Ctx, client.Client)
+	worker := NewWorker(*client, jobs, result, robot, &wg)
 
-	allowed, err := robotsData.IsAllowed(botName, startURL)
+	allowed, err := robot.IsAllowed(botName, startURL)
 
 	if err != nil {
 		log.Fatal(err)
@@ -44,7 +38,7 @@ func main() {
 
 	for i := 1; i <= numWorker; i++ {
 		wg.Add(1)
-		go worker.Run(i)
+		go worker.Run(i, botName)
 	}
 
 	if allowed {
@@ -72,25 +66,7 @@ func main() {
 				continue
 			}
 
-			if _, exist := robotsData.host[parsedURL.Host]; !exist {
-				fmt.Println("getting new rules")
-				parsedURL.Path = "/"
-				parsedURL.RawQuery = ""
-				parsedURL.Fragment = ""
-
-				fmt.Println(parsedURL.String())
-
-				addedRules, err := ParseRobot(parsedURL.String())
-
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				maps.Copy(robotsData.Rules, addedRules.Rules)
-				robotsData.host[parsedURL.Host] = struct{}{}
-			}
-
-			allowed, err := robotsData.IsAllowed(myAgent, link)
+			allowed, err := robot.IsAllowed(botName, link)
 
 			if err != nil {
 				log.Fatal(err)

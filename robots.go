@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,108 +12,90 @@ import (
 	"time"
 )
 
-type RateLimiter struct {
-	Host   string
-	Ticker *time.Ticker
+//	type RateLimiter struct {
+//		Host   string
+//		Ticker *time.Ticker
+//	}
+type RuleSet struct {
+	userAgent  string
+	disallow   []string
+	allow      []string
+	crawlDelay string
 }
 
-type RobotsRule struct {
-	UserAgent  string
-	Disallow   []string
-	Allow      []string
-	CrawlDelay int
+type Rules struct {
+	rules map[string]*RuleSet
 }
 
 type Robots struct {
 	mu             sync.Mutex
-	host           map[string]struct{}
-	DomainsLimiter map[string]*RateLimiter
-	Rules          map[string]*RobotsRule
+	ctx            context.Context
+	client         *http.Client
+	DomainsLimiter map[string]*time.Ticker
+	RuleHosts      map[string]*Rules
 }
 
-func (r *Robots) RateLimit(host string) *RateLimiter {
+func NewRobot(ctx context.Context, client *http.Client) *Robots {
+	return &Robots{
+		ctx:            ctx,
+		client:         client,
+		DomainsLimiter: make(map[string]*time.Ticker),
+		RuleHosts:      make(map[string]*Rules),
+	}
+}
+
+func (r *Robots) FetchRules(link string) error {
+	parsedURL, err := url.Parse(link)
+
+	if err != nil {
+		return fmt.Errorf("parsing url: %w", err)
+	}
+
+	parsedURL.Path = "/robots.txt"
+	parsedURL.RawQuery = ""
+	parsedURL.Fragment = ""
+	host := parsedURL.Host
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	var ticker *time.Ticker
-
-	if rateLimit, exist := r.DomainsLimiter[host]; exist {
-		return rateLimit
+	if _, exist := r.RuleHosts[host]; exist {
+		r.mu.Unlock()
+		return nil
 	}
+	r.mu.Unlock()
 
-	if _, exist := r.Rules[host]; exist {
-		ticker = time.NewTicker(time.Duration(r.Rules[host].CrawlDelay) * time.Second)
-	} else {
-
-		ticker = time.NewTicker(5 * time.Second)
-	}
-
-	rateLimit := &RateLimiter{
-		Host:   host,
-		Ticker: ticker,
-	}
-
-	r.DomainsLimiter[host] = rateLimit
-
-	return rateLimit
-}
-
-func (r *Robots) IsAllowed(agent, path string) (bool, error) {
-	parsedURL, err := url.Parse(path)
+	req, err := http.NewRequestWithContext(r.ctx, http.MethodGet, parsedURL.String(), nil)
 
 	if err != nil {
-		return false, fmt.Errorf("parsing url: %w", err)
+		return fmt.Errorf("creating request: %w", err)
 	}
 
-	rule, ok := r.Rules[agent]
-
-	if !ok {
-		rule, ok = r.Rules["*"]
-		if !ok {
-			return true, nil
-		}
-	}
-
-	for _, disallow := range rule.Disallow {
-		if disallow != "" && strings.HasPrefix(parsedURL.Path, disallow) {
-			for _, allow := range rule.Allow {
-				if strings.HasPrefix(parsedURL.Path, allow) && len(allow) >= len(disallow) {
-					return true, nil
-				}
-			}
-
-			return false, nil
-		}
-	}
-
-	return true, nil
-}
-
-func ParseRobot(link string) (*Robots, error) {
-	robotsURL, err := url.Parse(link)
+	resp, err := r.client.Do(req)
 
 	if err != nil {
-		return nil, fmt.Errorf("parsing base url <robots.txt>: %w", err)
-	}
-
-	robotsURL.Path = "robots.txt"
-
-	resp, err := http.Get(robotsURL.String())
-
-	if err != nil {
-		return nil, fmt.Errorf("getting http request: %w", err)
+		return fmt.Errorf("getting response from an http request: %w", err)
 	}
 
 	defer resp.Body.Close()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	data := &Robots{
-		host:           make(map[string]struct{}),
-		DomainsLimiter: make(map[string]*RateLimiter),
-		Rules:          make(map[string]*RobotsRule),
+	if _, exist := r.RuleHosts[host]; exist {
+		return nil
 	}
 
+	rule := &RuleSet{
+		userAgent:  "",
+		disallow:   make([]string, 0),
+		allow:      make([]string, 0),
+		crawlDelay: "",
+	}
+
+	cache := &Rules{
+		rules: make(map[string]*RuleSet),
+	}
+
+	var currActiveAgent []string
 	scanner := bufio.NewScanner(resp.Body)
-	var currentAgent string
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -132,24 +115,199 @@ func ParseRobot(link string) (*Robots, error) {
 
 		switch key {
 		case "user-agent":
-			currentAgent = val
-			if _, ok := data.Rules[currentAgent]; !ok {
-				data.Rules[currentAgent] = &RobotsRule{UserAgent: val}
+			if _, exist := cache.rules[val]; !exist {
+				rule.userAgent = val
+				cache.rules[val] = rule
 			}
-		case "disallow":
-			if currentAgent != "" {
-				data.Rules[currentAgent].Disallow = append(data.Rules[currentAgent].Disallow, val)
+
+			currActiveAgent = append(currActiveAgent, val)
+		case "allow", "disallow", "crawl-delay":
+			if len(currActiveAgent) == 0 {
+				continue
 			}
-		case "allow":
-			if currentAgent != "" {
-				data.Rules[currentAgent].Allow = append(data.Rules[currentAgent].Allow, val)
+
+			for _, agent := range currActiveAgent {
+				switch key {
+				case "allow":
+					cache.rules[agent].allow = append(cache.rules[agent].allow, val)
+				case "disallow":
+					cache.rules[agent].disallow = append(cache.rules[agent].disallow, val)
+				case "crawl-delay":
+					cache.rules[agent].crawlDelay = val
+				}
 			}
-		case "crawl-delay":
-			if currentAgent != "" {
-				data.Rules[currentAgent].CrawlDelay, err = strconv.Atoi(val)
-			}
+		case "":
+			currActiveAgent = []string{}
 		}
 	}
 
-	return data, nil
+	r.RuleHosts[host] = cache
+	return nil
 }
+
+func (r *Robots) RateLimit(agent string, link *url.URL) *time.Ticker {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var ticker *time.Ticker
+	var tickerAmount int
+	var err error
+
+	if rateLimit, exist := r.DomainsLimiter[link.Host]; exist {
+		return rateLimit
+	}
+
+	if ticker, exist := r.DomainsLimiter[link.Host]; exist {
+		return ticker
+	}
+
+	host := r.RuleHosts[link.Host]
+
+	if host != nil {
+		rules, exist := host.rules[agent]
+
+		if !exist {
+			rules, _ = host.rules["*"]
+		}
+
+		if rules != nil && rules.crawlDelay != "" {
+			tickerAmount, err = strconv.Atoi(rules.crawlDelay)
+		}
+	}
+
+	if err != nil {
+		return nil
+	}
+
+	if tickerAmount <= 0 {
+		tickerAmount = 5
+	}
+
+	ticker = time.NewTicker(time.Duration(tickerAmount) * time.Second)
+	r.DomainsLimiter[link.Host] = ticker
+
+	return ticker
+}
+
+func (r *Robots) IsAllowed(agent, path string) (bool, error) {
+	parsedURL, err := url.Parse(path)
+
+	if err != nil {
+		return false, fmt.Errorf("parsing url: %w", err)
+	}
+
+	r.mu.Lock()
+	base, exist := r.RuleHosts[parsedURL.Host]
+	r.mu.Unlock()
+
+	if !exist {
+		fmt.Printf("\033[33m|getting new rules:\n|%v\n\033[0m", parsedURL.Host)
+
+		if err := r.FetchRules(parsedURL.String()); err != nil {
+			return false, fmt.Errorf("robots cannot be parsed: %w", err)
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	base, exist = r.RuleHosts[parsedURL.Host]
+
+	if !exist {
+		return true, nil
+	}
+
+	rule, exist := base.rules[agent]
+
+	if !exist {
+		rule, exist = base.rules["*"]
+		if !exist {
+			return true, nil
+		}
+	}
+
+	for _, disallow := range rule.disallow {
+		if disallow != "" && strings.HasPrefix(parsedURL.Path, disallow) {
+			for _, allow := range rule.allow {
+				if strings.HasPrefix(parsedURL.Path, allow) && len(allow) >= len(disallow) {
+					return true, nil
+				}
+			}
+
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// func ParseRobot(link string) (*Robots, error) {
+// 	robotsURL, err := url.Parse(link)
+//
+// 	if err != nil {
+// 		return nil, fmt.Errorf("parsing base url <robots.txt>: %w", err)
+// 	}
+//
+// 	robotsURL.Path = "robots.txt"
+//
+// 	resp, err := http.Get(robotsURL.String())
+//
+// 	if err != nil {
+// 		return nil, fmt.Errorf("getting http request: %w", err)
+// 	}
+//
+// 	defer resp.Body.Close()
+//
+// 	cache := &Rules{
+// 		rules: make(map[string]*RuleSet),
+// 	}
+//
+// 	data := &Robots{
+// 		DomainsLimiter: make(map[string]*RateLimiter),
+// 		Host:           make(map[string]*Rules),
+// 	}
+//
+// 	scanner := bufio.NewScanner(resp.Body)
+// 	var currentAgent string
+//
+// 	for scanner.Scan() {
+// 		line := strings.TrimSpace(scanner.Text())
+//
+// 		if line == "" || strings.HasPrefix(line, "#") {
+// 			continue
+// 		}
+//
+// 		parts := strings.SplitN(line, ":", 2)
+//
+// 		if len(parts) < 2 {
+// 			continue
+// 		}
+//
+// 		key := strings.ToLower(strings.TrimSpace(parts[0]))
+// 		val := strings.TrimSpace(parts[1])
+//
+// 		switch key {
+// 		case "user-agent":
+// 			currentAgent = val
+// 			if _, ok := cache.rules[currentAgent]; !ok {
+// 				cache.rules[currentAgent] = &RuleSet{userAgent: val}
+// 			}
+// 		case "disallow":
+// 			if currentAgent != "" {
+// 				cache.rules[currentAgent].disallow = append(cache.rules[currentAgent].disallow, val)
+// 			}
+// 		case "allow":
+// 			if currentAgent != "" {
+// 				cache.rules[currentAgent].allow = append(cache.rules[currentAgent].allow, val)
+// 			}
+// 		case "crawl-delay":
+// 			if currentAgent != "" {
+// 				cache.rules[currentAgent].crawlDelay, err = strconv.Atoi(val)
+// 			}
+// 		}
+// 	}
+//
+// 	data.Host[robotsURL.Host] = cache
+//
+// 	return data, nil
+// }
