@@ -23,35 +23,42 @@ func Fetch(ctx context.Context, client *http.Client, myAgent string, parsedURL *
 
 		req.Header.Set("User-Agent", myAgent)
 
-		resp, err := client.Do(req)
+		resp, doErr := client.Do(req)
+		err = doErr
 
-		if err == nil && resp.StatusCode == http.StatusOK {
-			doc, err := html.Parse(resp.Body)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				doc, parseErr := html.Parse(resp.Body)
+				err = parseErr
 
-			if err != nil {
-				return nil, fmt.Errorf("parsing http response: %w", err)
+				if err != nil {
+					return nil, fmt.Errorf("parsing http response: %w", err)
+				}
+
+				return doc, nil
+			}
+			if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+				return nil, fmt.Errorf("client error: %d", resp.StatusCode)
 			}
 
-			return doc, nil
 		}
-
-		if resp != nil && resp.StatusCode >= 400 && resp.StatusCode < 500 {
-			resp.Body.Close()
-			return nil, fmt.Errorf("client error: %d", resp.StatusCode)
-		}
-
-		resp.Body.Close()
 
 		if i < maxRetries {
 			waitTime := time.Duration(i+1) * 2 * time.Second
-			time.Sleep(waitTime)
+
+			select {
+			case <-time.After(waitTime):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 	}
 
 	return nil, fmt.Errorf("failed after %d retries: %w", maxRetries, err)
 }
 
-func Traverse(node *html.Node, res Result, result chan<- Result) {
+func Traverse(node *html.Node, res *Result) {
 	seen := make(map[string]struct{})
 	var traversal func(node *html.Node)
 
@@ -80,5 +87,4 @@ func Traverse(node *html.Node, res Result, result chan<- Result) {
 	}
 
 	traversal(node)
-	result <- res
 }

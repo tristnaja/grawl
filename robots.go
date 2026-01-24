@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -149,8 +150,10 @@ func (r *Robots) RateLimit(agent string, link *url.URL) *time.Ticker {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	bufRand := rand.Float64()
+
 	var ticker *time.Ticker
-	var tickerAmount int
+	var tickerAmount float64
 	var err error
 
 	if rateLimit, exist := r.DomainsLimiter[link.Host]; exist {
@@ -171,16 +174,16 @@ func (r *Robots) RateLimit(agent string, link *url.URL) *time.Ticker {
 		}
 
 		if rules != nil && rules.crawlDelay != "" {
-			tickerAmount, err = strconv.Atoi(rules.crawlDelay)
+			tickerAmount, err = strconv.ParseFloat(strings.TrimSpace(rules.crawlDelay), 64)
 		}
 	}
 
-	if err != nil {
-		return nil
+	if err != nil || tickerAmount <= 0 {
+		tickerAmount = 2 + bufRand
 	}
 
-	if tickerAmount <= 0 {
-		tickerAmount = 5
+	if tickerAmount > 30 {
+		tickerAmount = 30
 	}
 
 	ticker = time.NewTicker(time.Duration(tickerAmount) * time.Second)
@@ -204,7 +207,7 @@ func (r *Robots) IsAllowed(agent, path string) (bool, error) {
 		fmt.Printf("\033[33m|getting new rules:\n|%v\n\033[0m", parsedURL.Host)
 
 		if err := r.FetchRules(parsedURL.String()); err != nil {
-			return false, fmt.Errorf("robots cannot be parsed: %w", err)
+			return true, fmt.Errorf("robots cannot be parsed: %w", err)
 		}
 	}
 

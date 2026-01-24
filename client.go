@@ -25,8 +25,9 @@ type Worker struct {
 }
 
 type Job struct {
-	ID  int
-	URL string
+	ID           int
+	URL          string
+	CurrentDepth int
 }
 
 type Result struct {
@@ -36,9 +37,8 @@ type Result struct {
 }
 
 type Scheduler struct {
-	mu         sync.Mutex
-	Visited    map[string]struct{}
-	QueueTrack int
+	mu      sync.Mutex
+	Visited map[string]struct{}
 }
 
 func (sch *Scheduler) ShouldCrawl(link string) bool {
@@ -50,7 +50,6 @@ func (sch *Scheduler) ShouldCrawl(link string) bool {
 	}
 
 	sch.Visited[link] = struct{}{}
-	sch.QueueTrack++
 	return true
 }
 
@@ -117,14 +116,18 @@ func (worker *Worker) Run(id int, botName string) error {
 				return err
 			}
 
-			fmt.Printf("Worker %d is Processing %v\n", id, parsedURL.String())
+			fmt.Println("----------------------------------------")
+			fmt.Printf("Worker %d\nProcessing %v\nDepth: %d\n", id, parsedURL.String(), job.CurrentDepth)
+			fmt.Println("----------------------------------------")
 			res := Result{
 				JobID:    job.ID,
 				StartURL: parsedURL,
 				Finding:  make([]string, 0),
 			}
 
-			Traverse(doc, res, worker.Result)
+			Traverse(doc, &res)
+
+			worker.Result <- res
 		}
 	}
 }
