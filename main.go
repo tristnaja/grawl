@@ -9,6 +9,7 @@ import (
 )
 
 func main() {
+	// TODO: Make a TUI
 	log.SetPrefix("grawl: ")
 	log.SetFlags(0)
 	botName := "Grawl"
@@ -19,7 +20,7 @@ func main() {
 		Visited: make(map[string]struct{}),
 	}
 
-	startURL := "https://example.com/"
+	startURL := "https://wikipedia.com/"
 	jobs := make(chan Job, 100)
 	result := make(chan Result, 100)
 	numWorker := 10
@@ -66,7 +67,7 @@ func main() {
 				nextJob = workerQueue[0]
 			}
 
-			if nextJob.CurrentDepth <= maxCrawlDepth {
+			if nextJob.CurrentDepth != maxCrawlDepth {
 				select {
 				case activeJobs <- nextJob:
 					workerQueue = workerQueue[1:]
