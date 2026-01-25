@@ -39,7 +39,10 @@ There are multiple ways to install `grawl`.
 This is the recommended method for macOS and Linux users.
 
 ```sh
-brew install tristnaja/tap/grawl
+brew tap tristnaja/tap/
+```
+```sh
+brew install grawl
 ```
 
 ### From Release
