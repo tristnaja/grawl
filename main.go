@@ -1,123 +1,116 @@
 package main
 
 import (
-	"context"
+	"bufio"
+	"flag"
 	"fmt"
-	"log"
-	"net/url"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
+
+	"github.com/tristnaja/grawl/internal"
 )
 
 func main() {
-	// TODO: Make a TUI
-	log.SetPrefix("grawl: ")
-	log.SetFlags(0)
-	botName := "Grawl"
-	myAgent := botName + "/1.0 (trstnalharrish@gmail.com)"
-
+	reader := bufio.NewReader(os.Stdin)
 	var wg sync.WaitGroup
-	scheduler := &Scheduler{
-		Visited: make(map[string]struct{}),
-	}
+	var isDefault string
+	var URLFlag string
+	var startURL string
+	var channelCapacity int
+	var numWorker int
+	var crawlDepth int
+	var err error
 
-	startURL := "https://wikipedia.com/"
-	jobs := make(chan Job, 100)
-	result := make(chan Result, 100)
-	numWorker := 10
-	maxCrawlDepth := 3
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	flag.StringVar(&URLFlag, "u", "", "Starting URL <shorthand>")
+	flag.StringVar(&URLFlag, "url", "", "Starting URL")
+	flag.Parse()
 
-	client := NewClient(myAgent, ctx)
-	robot := NewRobot(client.Ctx, client.Client)
-	worker := NewWorker(*client, jobs, result, robot, &wg)
-
-	for i := 1; i <= numWorker; i++ {
-		wg.Add(1)
-		go worker.Run(i, botName)
-	}
-
-	go func() {
-		var workerQueue []Job
-		activeWorker := 0
-		allowed, err := robot.IsAllowed(botName, startURL)
+	if URLFlag == "" && flag.NArg() <= 0 {
+		fmt.Print("Enter your starting URL: ")
+		URLFlag, err = reader.ReadString('\n')
 
 		if err != nil {
-			log.Println(err)
+			fmt.Print("Error, input again: ")
+			URLFlag, err = reader.ReadString('\n')
+
+			if err != nil {
+				fmt.Println("Invalid Input, please re-run the program")
+				os.Exit(1)
+			}
+
+			startURL = strings.TrimSpace(URLFlag)
+		} else {
+			startURL = strings.TrimSpace(URLFlag)
+		}
+	}
+
+	if URLFlag == "" && flag.NArg() > 0 {
+		startURL = flag.Arg(0)
+	}
+
+	if URLFlag != "" {
+		startURL = strings.TrimSpace(URLFlag)
+	}
+
+	fmt.Println("\nThis is the default configuration:")
+	fmt.Println("Capacity: 100")
+	fmt.Println("Number of Worker(s): 10")
+	fmt.Println("Crawl Depth: 2")
+	fmt.Print("Do you want the default config for your worker (y/n)? ")
+	isDefault, err = reader.ReadString('\n')
+	isDefault = strings.ToLower(strings.TrimSpace(isDefault))
+
+	if isDefault != "y" && isDefault != "n" && isDefault != "yes" && isDefault != "no" {
+		fmt.Println("Invalid Input, please re-run the program")
+		os.Exit(1)
+	}
+
+	switch isDefault {
+	case "y", "yes":
+		channelCapacity = 100
+		numWorker = 10
+		crawlDepth = 2
+	case "n", "no":
+		fmt.Println("Enter your configuration!")
+
+		fmt.Print("Capacity: ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		channelCapacity, err = strconv.Atoi(input)
+		if err != nil {
+			fmt.Println("Not a number, using default: 100")
+			channelCapacity = 100
 		}
 
-		if allowed {
-			if scheduler.ShouldCrawl(startURL) {
-				initialJob := Job{
-					ID:           0,
-					URL:          startURL,
-					CurrentDepth: 0,
-				}
-				workerQueue = append(workerQueue, initialJob)
-				fmt.Println("Initial link sent")
-			}
+		fmt.Print("Number of Worker(s): ")
+		input, _ = reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		numWorker, err = strconv.Atoi(input)
+		if err != nil {
+			fmt.Println("Not a number, using default: 10")
+			channelCapacity = 10
 		}
 
-		for {
-			var activeJobs chan Job
-			var nextJob Job
-
-			if len(workerQueue) > 0 {
-				activeJobs = jobs
-				nextJob = workerQueue[0]
-			}
-
-			if nextJob.CurrentDepth != maxCrawlDepth {
-				select {
-				case activeJobs <- nextJob:
-					workerQueue = workerQueue[1:]
-					activeWorker++
-				case links := <-result:
-					activeWorker--
-					for _, link := range links.Finding {
-						parsedURL, err := url.Parse(link)
-
-						if err != nil {
-							log.Println(err)
-						}
-
-						if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-							continue
-						}
-
-						allowed, err := robot.IsAllowed(botName, link)
-
-						if err != nil {
-							log.Println(err)
-						}
-
-						if allowed {
-							if scheduler.ShouldCrawl(link) {
-								newJob := Job{
-									ID:           nextJob.ID + 1,
-									URL:          link,
-									CurrentDepth: nextJob.CurrentDepth + 1,
-								}
-								workerQueue = append(workerQueue, newJob)
-							}
-						}
-
-					}
-
-				}
-			} else {
-				workerQueue = []Job{}
-				activeWorker = 0
-			}
-
-			if len(workerQueue) == 0 && activeWorker == 0 {
-				close(jobs)
-				return
-			}
+		fmt.Print("Crawl Depth: ")
+		input, _ = reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		crawlDepth, err = strconv.Atoi(input)
+		if err != nil {
+			fmt.Println("Not a number, using default: 2")
+			channelCapacity = 2
 		}
-	}()
+	}
 
-	wg.Wait()
-	close(result)
-	fmt.Println("finished crawling")
+	jobs := make(chan internal.Job, channelCapacity)
+	result := make(chan internal.Result, channelCapacity)
+	errChan := make(chan error, channelCapacity)
+
+	fmt.Println("Starting Crawl with:")
+	fmt.Printf("Capacity: %d\n", channelCapacity)
+	fmt.Printf("Number of Worker(s): %d\n", numWorker)
+	fmt.Printf("Crawl Depth: %d\n", crawlDepth)
+
+	internal.Orchestrate(startURL, jobs, result, errChan, numWorker, crawlDepth, &wg)
 }

@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-func Fetch(ctx context.Context, client *http.Client, myAgent string, parsedURL *url.URL) (*html.Node, error) {
+func FetchPage(ctx context.Context, client *http.Client, myAgent string, parsedURL *url.URL) (*html.Node, error) {
 	maxRetries := 3
 	var err error
 
@@ -58,7 +58,7 @@ func Fetch(ctx context.Context, client *http.Client, myAgent string, parsedURL *
 	return nil, fmt.Errorf("failed after %d retries: %w", maxRetries, err)
 }
 
-func Traverse(node *html.Node, res *Result) {
+func TraverseNode(node *html.Node, res *Result) {
 	seen := make(map[string]struct{})
 	var traversal func(node *html.Node)
 

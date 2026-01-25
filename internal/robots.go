@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"bufio"
@@ -13,10 +13,6 @@ import (
 	"time"
 )
 
-//	type RateLimiter struct {
-//		Host   string
-//		Ticker *time.Ticker
-//	}
 type RuleSet struct {
 	userAgent  string
 	disallow   []string
@@ -186,7 +182,8 @@ func (r *Robots) RateLimit(agent string, link *url.URL) *time.Ticker {
 		tickerAmount = 30
 	}
 
-	ticker = time.NewTicker(time.Duration(tickerAmount) * time.Second)
+	duration := time.Duration(tickerAmount * float64(time.Second))
+	ticker = time.NewTicker(duration)
 	r.DomainsLimiter[link.Host] = ticker
 
 	return ticker
@@ -204,7 +201,7 @@ func (r *Robots) IsAllowed(agent, path string) (bool, error) {
 	r.mu.Unlock()
 
 	if !exist {
-		fmt.Printf("\033[33m|getting new rules:\n|%v\n\033[0m", parsedURL.Host)
+		fmt.Printf("\033[34m| getting new rules:\n| %v\n\033[0m", parsedURL.Host)
 
 		if err := r.FetchRules(parsedURL.String()); err != nil {
 			return true, fmt.Errorf("robots cannot be parsed: %w", err)
@@ -243,74 +240,3 @@ func (r *Robots) IsAllowed(agent, path string) (bool, error) {
 
 	return true, nil
 }
-
-// func ParseRobot(link string) (*Robots, error) {
-// 	robotsURL, err := url.Parse(link)
-//
-// 	if err != nil {
-// 		return nil, fmt.Errorf("parsing base url <robots.txt>: %w", err)
-// 	}
-//
-// 	robotsURL.Path = "robots.txt"
-//
-// 	resp, err := http.Get(robotsURL.String())
-//
-// 	if err != nil {
-// 		return nil, fmt.Errorf("getting http request: %w", err)
-// 	}
-//
-// 	defer resp.Body.Close()
-//
-// 	cache := &Rules{
-// 		rules: make(map[string]*RuleSet),
-// 	}
-//
-// 	data := &Robots{
-// 		DomainsLimiter: make(map[string]*RateLimiter),
-// 		Host:           make(map[string]*Rules),
-// 	}
-//
-// 	scanner := bufio.NewScanner(resp.Body)
-// 	var currentAgent string
-//
-// 	for scanner.Scan() {
-// 		line := strings.TrimSpace(scanner.Text())
-//
-// 		if line == "" || strings.HasPrefix(line, "#") {
-// 			continue
-// 		}
-//
-// 		parts := strings.SplitN(line, ":", 2)
-//
-// 		if len(parts) < 2 {
-// 			continue
-// 		}
-//
-// 		key := strings.ToLower(strings.TrimSpace(parts[0]))
-// 		val := strings.TrimSpace(parts[1])
-//
-// 		switch key {
-// 		case "user-agent":
-// 			currentAgent = val
-// 			if _, ok := cache.rules[currentAgent]; !ok {
-// 				cache.rules[currentAgent] = &RuleSet{userAgent: val}
-// 			}
-// 		case "disallow":
-// 			if currentAgent != "" {
-// 				cache.rules[currentAgent].disallow = append(cache.rules[currentAgent].disallow, val)
-// 			}
-// 		case "allow":
-// 			if currentAgent != "" {
-// 				cache.rules[currentAgent].allow = append(cache.rules[currentAgent].allow, val)
-// 			}
-// 		case "crawl-delay":
-// 			if currentAgent != "" {
-// 				cache.rules[currentAgent].crawlDelay, err = strconv.Atoi(val)
-// 			}
-// 		}
-// 	}
-//
-// 	data.Host[robotsURL.Host] = cache
-//
-// 	return data, nil
-// }
