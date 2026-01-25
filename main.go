@@ -12,6 +12,8 @@ import (
 	"github.com/tristnaja/grawl/internal"
 )
 
+var version = "dev"
+
 func main() {
 	reader := bufio.NewReader(os.Stdin)
 	var wg sync.WaitGroup
@@ -22,10 +24,18 @@ func main() {
 	var numWorker int
 	var crawlDepth int
 	var err error
+	var versionFlag bool
 
 	flag.StringVar(&URLFlag, "u", "", "Starting URL <shorthand>")
 	flag.StringVar(&URLFlag, "url", "", "Starting URL")
+	flag.BoolVar(&versionFlag, "v", false, "Print version and exit")
+	flag.BoolVar(&versionFlag, "version", false, "Print version and exit")
 	flag.Parse()
+
+	if versionFlag {
+		fmt.Printf("grawl version %s\n", version)
+		os.Exit(0)
+	}
 
 	if URLFlag == "" && flag.NArg() <= 0 {
 		fmt.Print("Enter your starting URL: ")
