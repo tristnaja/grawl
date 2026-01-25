@@ -32,6 +32,5 @@ go.work.sum
 # .vscode/
 
 .DS_Store
-*.md
 # Added by goreleaser init:
 dist/
