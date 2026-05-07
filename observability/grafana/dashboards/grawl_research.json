@@ -1,0 +1,83 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Visited URLs/s",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(crawl_urls_visited_total[1m])",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Discovered URLs/s",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(crawl_urls_discovered_total[1m])",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Fetch Errors/s",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(crawl_fetch_errors_total[1m])",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "p95 Fetch Duration",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(crawl_fetch_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "In-flight Requests",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "crawl_inflight_requests",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Workers/Goroutines",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "crawl_active_workers",
+          "legendFormat": "workers {{model}}"
+        },
+        {
+          "expr": "crawl_active_goroutines",
+          "legendFormat": "goroutines {{model}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "title": "grawl Research",
+  "version": 1
+}

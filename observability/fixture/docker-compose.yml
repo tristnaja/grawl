@@ -1,0 +1,11 @@
+services:
+  fixture:
+    image: golang:1.25
+    container_name: grawl-fixture
+    working_dir: /app
+    command: >
+      sh -c "go run ./fixture_server --port 18080 --depth 4 --branching 5 --latency 50ms"
+    volumes:
+      - ../../:/app
+    ports:
+      - "18080:18080"
