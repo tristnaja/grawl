@@ -32,5 +32,10 @@ go.work.sum
 # .vscode/
 
 .DS_Store
-# Added by goreleaser init:
 dist/
+research_data/
+*.zip
+
+*.md
+
+!README.md
