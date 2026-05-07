@@ -1,0 +1,90 @@
+---
+title: "grawl Research Comprehensive Report"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+params:
+  root_dir: "research_data"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(knitr)
+```
+
+# Executive Summary
+
+This document consolidates all generated research artifacts for Model A (dynamic crawler) and Model B (worker pool crawler).
+
+# Inputs and Data Sources
+
+```{r}
+root <- params$root_dir
+processed <- file.path(root, "processed")
+reports <- file.path(root, "reports")
+diagrams <- file.path(root, "diagrams")
+meta <- file.path(root, "_meta")
+
+cat("Root:", root, "\n")
+cat("Processed:", processed, "\n")
+cat("Reports:", reports, "\n")
+cat("Diagrams:", diagrams, "\n")
+cat("Meta:", meta, "\n")
+```
+
+# Core Comparison Table
+
+```{r}
+tbl_path <- file.path(processed, "comparison_table.csv")
+if (file.exists(tbl_path)) {
+  tbl <- read.csv(tbl_path, stringsAsFactors = FALSE)
+  kable(tbl)
+} else {
+  cat("comparison_table.csv not found")
+}
+```
+
+# Generated Diagrams
+
+```{r}
+imgs <- c(
+  "throughput_comparison.png",
+  "latency_comparison.png",
+  "error_rate_comparison.png",
+  "memory_comparison.png"
+)
+
+for (img in imgs) {
+  p <- file.path(diagrams, img)
+  if (file.exists(p)) {
+    cat("\n##", img, "\n\n")
+    knitr::include_graphics(p)
+    cat("\n")
+  }
+}
+```
+
+# Explicit Interpretation
+
+```{r}
+report_md <- file.path(reports, "report.md")
+if (file.exists(report_md)) {
+  lines <- readLines(report_md, warn = FALSE)
+  cat(paste(lines, collapse = "\n"))
+} else {
+  cat("report.md not found")
+}
+```
+
+# Reproducibility and Manifest
+
+```{r}
+manifest_path <- file.path(meta, "manifest.json")
+if (file.exists(manifest_path)) {
+  txt <- readLines(manifest_path, warn = FALSE)
+  cat(paste(txt, collapse = "\n"))
+} else {
+  cat("manifest.json not found")
+}
+```
